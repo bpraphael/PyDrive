@@ -24,6 +24,7 @@ NOT_FOLDER_TYPE_FILTER = "mimeType!='application/vnd.google-apps.folder'"
 GIGA = 1 * 1024 * 1024 * 1024
 
 # Debug only 0/1
+DEBUG_SKIP_THIS_SIZE = 20 * 1024 * 1024 # >=20 MB
 DEBUG_SKIP_CONFIRMATION = 0
 DEBUG_TRACE = 0
 
@@ -374,6 +375,7 @@ def main(source_root, dest_root):
     num_uploaded_files = 0
     num_upload_errors = 0
     num_existing_files = 0
+    num_skipped_files = 0
     error_streak = 0
     ERROR_STREAK_WAIT = 5
     ERROR_STREAK_ABORT = 10
@@ -396,24 +398,27 @@ def main(source_root, dest_root):
                 full_file_path = clean_path(path + '/' + file)
                 file_size = os.path.getsize(full_file_path)
                 print((' ' * 92) + '\r', end='') # clear the progress bar
-                print('Uploading file "%s/%s" (%s)' % (dest_path, file, format_pretty_size(file_size)))
-                update_progress_bar((num_uploaded_files + num_existing_files), num_source_files)
-                try:
-                    upload_file(service, current_dest_id, full_file_path, check_exists=False)
-                    size_uploaded_files += file_size
-                    num_uploaded_files += 1
-                    error_streak = 0
-                except Exception as e:
-                    print('File upload error: ' + str(e))
-                    num_upload_errors += 1
-                    error_streak += 1
-                    
-                # Error handling
-                if error_streak >= ERROR_STREAK_ABORT:
-                    g_stop_loop = True
-                elif error_streak >= ERROR_STREAK_WAIT:
-                    print('Too many sequential errors, waiting 30 seconds before continuing...')
-                    time.sleep(30)
+                if file_size >= DEBUG_SKIP_THIS_SIZE:
+                    num_skipped_files += 1
+                else:
+                    print('Uploading file "%s/%s" (%s)' % (dest_path, file, format_pretty_size(file_size)))
+                    update_progress_bar((num_uploaded_files + num_existing_files), num_source_files)
+                    try:
+                        upload_file(service, current_dest_id, full_file_path, check_exists=False)
+                        size_uploaded_files += file_size
+                        num_uploaded_files += 1
+                        error_streak = 0
+                    except Exception as e:
+                        print('File upload error: ' + str(e))
+                        num_upload_errors += 1
+                        error_streak += 1
+                        
+                    # Error handling
+                    if error_streak >= ERROR_STREAK_ABORT:
+                        g_stop_loop = True
+                    elif error_streak >= ERROR_STREAK_WAIT:
+                        print('Too many sequential errors, waiting 30 seconds before continuing...')
+                        time.sleep(30)
             else:
                 # File already exists in destination
                 num_existing_files += 1
@@ -437,6 +442,9 @@ def main(source_root, dest_root):
     print('%d file(s) uploaded (%s)' % (
         num_uploaded_files,
         format_pretty_size(size_uploaded_files)))
+    print('%d file(s) failed to upload' % num_upload_errors)
+    if num_skipped_files > 0:
+        print('%d file(s) skipped' % num_skipped_files)
     print('%d file(s) already existed' % num_existing_files)
     print('')
 
