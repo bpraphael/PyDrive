@@ -38,7 +38,7 @@ else:
     def debug_trace(*args):
         pass
 
-def safe_get_dict(struct, *args):
+def safe_get_field(struct, *args):
     for field in args:
         try:
             struct = struct[field]
@@ -146,8 +146,8 @@ def _files_list_all_pages(service, **kwargs):
     pageToken = None
     while True:
         results = service.files().list(**kwargs, pageToken=pageToken).execute()
-        all_files.extend(safe_get_dict(results, 'files'))
-        pageToken = safe_get_dict(results, 'nextPageToken')
+        all_files.extend(safe_get_field(results, 'files'))
+        pageToken = safe_get_field(results, 'nextPageToken')
         if not pageToken:
             return all_files
 
@@ -183,7 +183,7 @@ def get_subdir(service, root_id, name):
     result = service.files().list(
         q=_build_query(FOLDER_TYPE_FILTER, _parent_filter(root_id), _name_filter(name)),
         fields="files(id)").execute()
-    return safe_get_dict(result, 'files', 0, 'id')
+    return safe_get_field(result, 'files', 0, 'id')
 
 """
 Make a directory. Flag check_exists prevents directory duplication (yes, it
@@ -265,7 +265,7 @@ Find the most probable client secret file around.
 """
 def get_client_secret_file():
     candidates = [f for f in os.listdir('.') if f.startswith('client_secret')]
-    return candidates[0] # ooo, advanced, machine learning, AI logic
+    return safe_get_field(candidates, 0) # ooo, advanced, machine learning, AI logic
 
 """
 Show/update the progress bar.
@@ -340,8 +340,12 @@ def main(source_root, dest_root):
         sys.exit(0)
     
     # Examine destination
+    secret_file = get_client_secret_file()
+    if not secret_file:
+        print('No client secret file found!')
+        sys.exit(1)
     print('Connecting to Google Drive... ', end='')
-    service = build('drive', 'v3', credentials=oauth_me(get_client_secret_file()))
+    service = build('drive', 'v3', credentials=oauth_me(secret_file))
     print('CONNECTED')
     
     print('Searching for the destination path in your Drive... ', end='')
