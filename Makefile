@@ -1,5 +1,7 @@
 .PHONY: clean venv
 
+all: clean venv
+
 clean:
 	rm -rf venv
 
