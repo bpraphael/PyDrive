@@ -394,12 +394,13 @@ def main(source_root, dest_root):
             if not file in existing_files_map:
                 # File does not exist in destination, upload it
                 full_file_path = clean_path(path + '/' + file)
+                file_size = os.path.getsize(full_file_path)
                 print((' ' * 92) + '\r', end='') # clear the progress bar
-                print('Uploading file "%s/%s"' % (dest_path, file))
+                print('Uploading file "%s/%s" (%s)' % (dest_path, file, format_pretty_size(file_size)))
                 update_progress_bar((num_uploaded_files + num_existing_files), num_source_files)
                 try:
                     upload_file(service, current_dest_id, full_file_path, check_exists=False)
-                    size_uploaded_files += os.path.getsize(full_file_path)
+                    size_uploaded_files += file_size
                     num_uploaded_files += 1
                     error_streak = 0
                 except Exception as e:
