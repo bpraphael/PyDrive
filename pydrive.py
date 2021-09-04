@@ -9,6 +9,7 @@ import signal
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import simpledialog
+from datetime import datetime
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -18,13 +19,20 @@ from google.oauth2.credentials import Credentials
 #===============================================================================
 # Constants
 
+# Configurable
+MAX_UPLOAD_SIZE = 20 * 1024 * 1024 # 20 MB
+LAST_EXECUTION_LOG = 'lastrun.log'
+DONT_UPLOAD_EXTENSIONS = [
+    '.db',
+]
+
+# Not configurable
 AUTH_SCOPES = [ 'https://www.googleapis.com/auth/drive' ]
 FOLDER_TYPE_FILTER = "mimeType='application/vnd.google-apps.folder'"
 NOT_FOLDER_TYPE_FILTER = "mimeType!='application/vnd.google-apps.folder'"
 GIGA = 1 * 1024 * 1024 * 1024
 
 # Debug only 0/1
-DEBUG_SKIP_THIS_SIZE = 20 * 1024 * 1024 # >=20 MB
 DEBUG_SKIP_CONFIRMATION = 0
 DEBUG_TRACE = 0
 
@@ -38,6 +46,14 @@ if DEBUG_TRACE:
 else:
     def debug_trace(*args):
         pass
+
+f = open(LAST_EXECUTION_LOG, 'wt')
+def print2(*args, **kwargs):
+    __builtins__.print(*args, **kwargs)
+    endl = '\n' if not 'end' in kwargs else kwargs['end']
+    f.write('\t'.join(args))
+    f.write(endl)
+print = print2
 
 def safe_get_field(struct, *args):
     for field in args:
@@ -276,12 +292,20 @@ def update_progress_bar(current, total):
     progress_percent = current * 100 / total
     num_progress_full = int(current * BAR_WIDTH / total)
     num_progress_empty = BAR_WIDTH - num_progress_full
-    print("% 3d%% |%s| (%d/%d)\r" % (
+    sys.stdout.write("% 3d%% |%s| (%d/%d)\r" % (
         int(progress_percent),
         (('#' * num_progress_full) + ('-' * num_progress_empty)),
         current,
-        total), end='')
-        
+        total))
+    sys.stdout.flush()
+
+"""
+Clear the progress bar before printing another message.
+"""
+def clear_progress_bar():
+    sys.stdout.write((' ' * 92) + '\r') # clear the progress bar
+    sys.stdout.flush()
+
 # Global
 g_tk_root = None
  
@@ -367,6 +391,7 @@ def main(source_root, dest_root):
         sys.exit(1)
     
     # --- It's show time ---
+    print(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
     
     global g_stop_loop
     signal.signal(signal.SIGINT, signal_handler)
@@ -388,6 +413,7 @@ def main(source_root, dest_root):
         relative_path = make_relative_path(path, source_root)
         dest_path = clean_path(dest_root + '/' + relative_path)
         current_dest_id = ensure_path(service, dest_path)
+        clear_progress_bar()
         print('Listing files for "%s"...' % dest_path)
         existing_files_map = result_list_to_map(list_files(service, current_dest_id))
         
@@ -395,10 +421,16 @@ def main(source_root, dest_root):
         for file in files:
             if not file in existing_files_map:
                 # File does not exist in destination, upload it
+                short_file_name = relative_path + '/' + file
                 full_file_path = clean_path(path + '/' + file)
                 file_size = os.path.getsize(full_file_path)
-                print((' ' * 92) + '\r', end='') # clear the progress bar
-                if file_size >= DEBUG_SKIP_THIS_SIZE:
+                clear_progress_bar()
+                if os.path.splitext(full_file_path)[-1] in DONT_UPLOAD_EXTENSIONS:
+                    print('File "%s" not uploaded due to prevented extension' % short_file_name)
+                    num_skipped_files += 1
+                elif file_size > MAX_UPLOAD_SIZE:
+                    print('File "%s" not uploaded due to size (%s)' % (short_file_name,
+                        format_pretty_size(file_size)))
                     num_skipped_files += 1
                 else:
                     print('Uploading file "%s/%s" (%s)' % (dest_path, file, format_pretty_size(file_size)))
