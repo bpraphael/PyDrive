@@ -20,7 +20,7 @@ from google.oauth2.credentials import Credentials
 # Constants
 
 # Configurable
-MAX_UPLOAD_SIZE = 20 * 1024 * 1024 # 20 MB
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024 # 100 MB
 LAST_EXECUTION_LOG = 'lastrun.log'
 DONT_UPLOAD_EXTENSIONS = [
     '.db',
@@ -255,7 +255,7 @@ Upload a file to a given directory (by id). Flag check_exists prevents file
 duplication (yes, it duplicates), but also adds overhead.
 Returns the file id.
 """
-def upload_file(service, root_id, full_file_path, check_exists=True):
+def upload_file(service, root_id, full_file_path, progress_callback=None, check_exists=True):
     debug_trace(root_id, full_file_path, check_exists)
     file_name = extract_file_name(full_file_path)
     mimetype = mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
@@ -267,12 +267,21 @@ def upload_file(service, root_id, full_file_path, check_exists=True):
 
     media = MediaFileUpload(full_file_path,
         mimetype=mimetype,
-        resumable=False)
-    result = service.files().create(fields='id', body={
+        chunksize=256*1024,
+        resumable=True)
+    request = service.files().create(fields='id', body={
         'name': file_name, 'parents': [ root_id ],
         'mimeType': mimetype},
-        media_body=media).execute()
-    return result['id']
+        media_body=media)
+    media.stream()
+    response = None
+    if progress_callback:
+        progress_callback(0, 0) # shows empty at first
+    while response is None:
+        status, response = request.next_chunk()
+        if status and progress_callback:
+            progress_callback(status.resumable_progress, status.total_size)
+    return response['id']
 
 #===============================================================================
 # User interface
@@ -285,25 +294,43 @@ def get_client_secret_file():
     return safe_get_field(candidates, 0) # ooo, advanced, machine learning, AI logic
 
 """
+Helper for formatting the progress bar.
+"""
+def _format_progress_bar(width, current, total):
+    if total == 0:
+        return '-' * width
+    num_progress_full = int(current * width / total)
+    num_progress_empty = width - num_progress_full
+    return ('#' * num_progress_full) + ('-' * num_progress_empty)
+
+"""
+Helper for formatting the progress bar.
+"""
+def _format_progress_percent(current, total):
+    if total == 0:
+        return '  0%'
+    return '% 3d%%' % round(current * 100 / total)
+
+"""
 Show/update the progress bar.
 """
-def update_progress_bar(current, total):
-    BAR_WIDTH = 70
-    progress_percent = current * 100 / total
-    num_progress_full = int(current * BAR_WIDTH / total)
-    num_progress_empty = BAR_WIDTH - num_progress_full
-    sys.stdout.write("% 3d%% |%s| (%d/%d)\r" % (
-        int(progress_percent),
-        (('#' * num_progress_full) + ('-' * num_progress_empty)),
-        current,
-        total))
+def update_progress_bar(files_current, files_total, upload_current=0, upload_total=0):
+    BAR_WIDTH = 30
+    files_bar = _format_progress_bar(BAR_WIDTH, files_current, files_total)
+    upload_bar = _format_progress_bar(BAR_WIDTH, upload_current, upload_total)
+    files_percent = _format_progress_percent(files_current, files_total)
+    upload_percent = _format_progress_percent(upload_current, upload_total)
+    
+    sys.stdout.write('%s |%s|%s| %s (%d/%d)\r' % (
+        upload_percent, upload_bar, files_bar,
+        files_percent, files_current, files_total))
     sys.stdout.flush()
 
 """
 Clear the progress bar before printing another message.
 """
 def clear_progress_bar():
-    sys.stdout.write((' ' * 92) + '\r') # clear the progress bar
+    sys.stdout.write((' ' * 85) + '\r') # clear the progress bar
     sys.stdout.flush()
 
 # Global
@@ -401,6 +428,7 @@ def main(source_root, dest_root):
     num_upload_errors = 0
     num_existing_files = 0
     num_skipped_files = 0
+    num_processed_files = 0
     error_streak = 0
     ERROR_STREAK_WAIT = 5
     ERROR_STREAK_ABORT = 10
@@ -419,6 +447,7 @@ def main(source_root, dest_root):
         
         # Walk each file in this subdir
         for file in files:
+            num_processed_files += 1
             if not file in existing_files_map:
                 # File does not exist in destination, upload it
                 short_file_name = relative_path + '/' + file
@@ -434,14 +463,19 @@ def main(source_root, dest_root):
                     num_skipped_files += 1
                 else:
                     print('Uploading file "%s/%s" (%s)' % (dest_path, file, format_pretty_size(file_size)))
-                    update_progress_bar((num_uploaded_files + num_existing_files), num_source_files)
+                    #update_progress_bar(num_processed_files, num_source_files)
                     try:
-                        upload_file(service, current_dest_id, full_file_path, check_exists=False)
+                        callback = lambda progress, total: update_progress_bar(
+                            num_processed_files, num_source_files, progress, total)
+                            
+                        upload_file(service, current_dest_id, full_file_path,
+                            progress_callback=callback, check_exists=False)
+                            
                         size_uploaded_files += file_size
                         num_uploaded_files += 1
                         error_streak = 0
                     except Exception as e:
-                        print('File upload error: ' + str(e))
+                        print('**File upload error: ' + str(e))
                         num_upload_errors += 1
                         error_streak += 1
                         
