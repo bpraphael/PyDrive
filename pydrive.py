@@ -570,8 +570,3 @@ if __name__ == '__main__':
         sys.exit(1)
         
     main(args.source, args.dest)
-
-"""
-Notes:
-SSC venv\Lib\site-packages\httplib2\__init__.py:1067&1212 => disable_ssl_certificate_validation=True,
-"""
