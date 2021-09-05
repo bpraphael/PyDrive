@@ -1,3 +1,11 @@
+"""
+Program for uploading files to Google Drive.
+Run with --help for more info.
+
+Raphael Pithan
+2021
+"""
+
 import os
 import os.path
 import sys
