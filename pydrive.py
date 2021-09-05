@@ -19,7 +19,8 @@ from google.oauth2.credentials import Credentials
 #===============================================================================
 # Constants
 
-# Configurable
+# Configurable ----
+
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024 # 100 MB
 LAST_EXECUTION_LOG = 'lastrun.log'
 DONT_UPLOAD_EXTENSIONS = [
@@ -27,17 +28,21 @@ DONT_UPLOAD_EXTENSIONS = [
 ]
 
 # Not configurable
+
 AUTH_SCOPES = [ 'https://www.googleapis.com/auth/drive' ]
 FOLDER_TYPE_FILTER = "mimeType='application/vnd.google-apps.folder'"
 NOT_FOLDER_TYPE_FILTER = "mimeType!='application/vnd.google-apps.folder'"
 GIGA = 1 * 1024 * 1024 * 1024
 
-# Debug only 0/1
+# Debug -----------
+
 DEBUG_SKIP_CONFIRMATION = 0
 DEBUG_TRACE = 0
 
 #===============================================================================
 # Auxiliar
+
+# Debug -----------
 
 if DEBUG_TRACE:
     def debug_trace(*args):
@@ -47,6 +52,19 @@ else:
     def debug_trace(*args):
         pass
 
+def debug_print_return(value):
+    print(str(value))
+    return value
+
+def debug_print_list(lst):
+    try:
+        for i in range(len(lst)):
+            print(i, str(lst[i]))
+    except:
+        pass
+
+# Log -------------
+
 f = open(LAST_EXECUTION_LOG, 'wt')
 def print2(*args, **kwargs):
     __builtins__.print(*args, **kwargs)
@@ -54,6 +72,8 @@ def print2(*args, **kwargs):
     f.write('\t'.join(args))
     f.write(endl)
 print = print2
+
+# Helper ----------
 
 def safe_get_field(struct, *args):
     for field in args:
@@ -63,16 +83,7 @@ def safe_get_field(struct, *args):
             return None
     return struct
 
-def dbg_print_return(value):
-    print(str(value))
-    return value
-
-def dbg_print_list(lst):
-    try:
-        for i in range(len(lst)):
-            print(i, str(lst[i]))
-    except:
-        pass
+# Path ------------
 
 def clean_path(path):
     path = path.replace('\\', '/')
@@ -87,14 +98,10 @@ def make_relative_path(path, root, strict=True):
         return None if strict else path
     return path[(len(root)+1):]
 
-def result_list_to_map(result_list):
-    map = {}
-    for result in result_list:
-        map[result['name']] = True
-    return map
-
 def extract_file_name(full_path):
     return os.path.basename(full_path)
+
+# Format ----------
 
 def format_pretty_size(size, decimais=1):
     UNITS = [ 'B', 'KB', 'MB', 'GB', 'TB' ]
@@ -110,6 +117,14 @@ def format_pretty_time(seconds):
     hours, rem = divmod(seconds, 3600)
     minutes, seconds = divmod(rem, 60)
     return '%02d:%02d:%02d' % (hours, minutes, seconds)
+
+# Other -----------
+
+def result_list_to_map(result_list):
+    map = {}
+    for result in result_list:
+        map[result['name']] = True
+    return map
 
 #===============================================================================
 # Google Drive
