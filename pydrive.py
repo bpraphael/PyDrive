@@ -322,6 +322,7 @@ Helper for formatting the progress bar.
 def _format_progress_bar(width, current, total):
     if total == 0:
         return '-' * width
+    current = min(max(0, current), total)
     num_progress_full = int(current * width / total)
     num_progress_empty = width - num_progress_full
     return ('#' * num_progress_full) + ('-' * num_progress_empty)
@@ -332,7 +333,8 @@ Helper for formatting the progress bar.
 def _format_progress_percent(current, total):
     if total == 0:
         return '  0%'
-    return '% 3d%%' % round(current * 100 / total)
+    current = min(max(0, current), total)
+    return ('%d%%' % round(current * 100 / total)).rjust(4)
 
 """
 Show/update the progress bar.
