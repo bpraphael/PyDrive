@@ -99,7 +99,7 @@ class Drive:
         results = self._files_list_all_pages(
             q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id)),
             fields='files(id, name)',
-            pageSize=100, orderBy='folder,name')
+            pageSize=100, orderBy='name')
         return results
 
     """
