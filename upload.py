@@ -26,7 +26,7 @@ from drive import *
 # Configurable ----
 
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024 # 100 MB
-LAST_EXECUTION_LOG = 'lastrun.log'
+LAST_EXECUTION_LOG = 'run%s.log'
 DONT_UPLOAD_EXTENSIONS = [
     '.db',
 ]
@@ -41,7 +41,7 @@ DEBUG_SKIP_CONFIRMATION = 0
 
 # Log -------------
 
-f = open(LAST_EXECUTION_LOG, 'wt')
+f = open(LAST_EXECUTION_LOG % datetime.now().strftime("%Y%m%d%H%M%S%f"), 'wt')
 def print2(*args, **kwargs):
     __builtins__.print(*args, **kwargs)
     endl = '\n' if not 'end' in kwargs else kwargs['end']
