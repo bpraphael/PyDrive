@@ -16,8 +16,6 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import simpledialog
 from datetime import datetime
-from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
 
 from auxiliar import *
 from drive import *
@@ -167,11 +165,12 @@ def main(source_root, dest_root):
         print('No client secret file found!')
         sys.exit(1)
     print('Connecting to Google Drive... ', end='')
-    service = build('drive', 'v3', credentials=oauth_me(secret_file))
+    drive = Drive()
+    drive.connect(secret_file)
     print('CONNECTED')
     
     print('Searching for the destination path in your Drive... ', end='')
-    dest_root_id = get_path(service, dest_root)
+    dest_root_id = drive.get_path(dest_root)
     if not dest_root_id:
         print('\nERROR: path "%s" not found in your Drive' % dest_root)
         sys.exit(1)
@@ -210,10 +209,10 @@ def main(source_root, dest_root):
         # obtain the list of files that already exist there (as a hash map)
         relative_path = make_relative_path(path, source_root)
         dest_path = clean_path(dest_root + '/' + relative_path)
-        current_dest_id = ensure_path(service, dest_path)
+        current_dest_id = drive.ensure_path(dest_path)
         clear_progress_bar()
         print('Listing files for "%s"...' % dest_path)
-        existing_files_map = result_list_to_map(list_files(service, current_dest_id))
+        existing_files_map = result_list_to_map(drive.list_files(current_dest_id))
         
         # Walk each file in this subdir
         for file in files:
@@ -238,7 +237,7 @@ def main(source_root, dest_root):
                         callback = lambda progress, total: update_progress_bar(
                             num_processed_files, num_source_files, progress, total)
                             
-                        upload_file(service, current_dest_id, full_file_path,
+                        drive.upload_file(current_dest_id, full_file_path,
                             progress_callback=callback, check_exists=False)
                             
                         size_uploaded_files += file_size
