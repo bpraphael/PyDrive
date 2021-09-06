@@ -284,7 +284,7 @@ def main(source_root, dest_root):
     print('')
 
 USAGE = """
-python pydrive.py [OPTIONS] [--source SOURCE_ROOT] [--dest DEST_ROOT]
+python upload.py [OPTIONS] [--source SOURCE_ROOT] [--dest DEST_ROOT]
   Options:
     --ask-source Ask for source (even if source is specified).
     --ask-dest Ask for destination (even if dest is specified).
