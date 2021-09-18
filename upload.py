@@ -145,7 +145,7 @@ def signal_handler(sig, frame):
 """
 Main. See script's doc bellow for more information.
 """
-def main(source_root, dest_root):
+def main(source_root, dest_root, options):
     # Examine source files
     if not os.path.exists(source_root):
         print('Source directory does not exist')
@@ -226,7 +226,7 @@ def main(source_root, dest_root):
                 if os.path.splitext(full_file_path)[-1] in DONT_UPLOAD_EXTENSIONS:
                     print('File "%s" not uploaded due to prevented extension' % short_file_name)
                     num_skipped_files += 1
-                elif file_size > MAX_UPLOAD_SIZE:
+                elif not options['no_max_size'] and file_size > MAX_UPLOAD_SIZE:
                     print('File "%s" not uploaded due to size (%s)' % (short_file_name,
                         format_pretty_size(file_size)))
                     num_skipped_files += 1
@@ -299,6 +299,7 @@ if __name__ == '__main__':
     parser.add_argument('--ask-dest', action='store_true', default=False)
     parser.add_argument('--source')
     parser.add_argument('--dest')
+    parser.add_argument('--no-max-size', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.ask_source or not args.source:
@@ -315,4 +316,4 @@ if __name__ == '__main__':
         print('No destination specified')
         sys.exit(1)
         
-    main(args.source, args.dest)
+    main(args.source, args.dest, { 'no_max_size': args.no_max_size })
