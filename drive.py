@@ -45,7 +45,7 @@ class Drive:
                     creds.refresh(Request())
                     refreshed = True
                 except RefreshError:
-                    os.path.remove(AUTH_TOKEN_FILE)
+                    os.remove(AUTH_TOKEN_FILE)
             if not refreshed:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     secret_file, AUTH_SCOPES)
