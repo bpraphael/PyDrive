@@ -196,7 +196,7 @@ class Drive:
 
         media = MediaFileUpload(full_file_path,
             mimetype=mimetype,
-            chunksize=256*1024,
+            chunksize=2*1024*1024,
             resumable=True)
         request = self.service.files().create(fields='id', body={
             'name': file_name, 'parents': [ root_id ],
