@@ -28,7 +28,7 @@ from drive import *
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024 # 100 MB
 LAST_EXECUTION_LOG = 'run%s.log'
 DONT_UPLOAD_EXTENSIONS = [
-    '.db',
+    '.db', '.py', '.bat'
 ]
 
 # Not configurable
@@ -182,7 +182,7 @@ def main(source_root, dest_root, options):
     print('to your Google Drive path\n  >>>"%s"<<<.' % dest_root)
     print('Existing files will be skipped.')
     print('Operation can be interrupted at any time by >>>Ctrl+C<<<.')
-    if not DEBUG_SKIP_CONFIRMATION and input('Are you sure [y/N]? ').upper() != 'Y':
+    if not DEBUG_SKIP_CONFIRMATION and not options['skip_confirmation'] and input('Are you sure [y/N]? ').upper() != 'Y':
         print('Operation aborted!')
         sys.exit(1)
     
@@ -300,6 +300,7 @@ if __name__ == '__main__':
     parser.add_argument('--source')
     parser.add_argument('--dest')
     parser.add_argument('--no-max-size', action='store_true', default=False)
+    parser.add_argument('--skip-confirmation', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.ask_source or not args.source:
@@ -316,4 +317,4 @@ if __name__ == '__main__':
         print('No destination specified')
         sys.exit(1)
         
-    main(args.source, args.dest, { 'no_max_size': args.no_max_size })
+    main(args.source, args.dest, { 'no_max_size': args.no_max_size, 'skip_confirmation': args.skip_confirmation })
