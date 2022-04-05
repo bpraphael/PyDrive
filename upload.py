@@ -12,6 +12,7 @@ import sys
 import time
 import argparse
 import signal
+import threading
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import simpledialog
@@ -19,14 +20,17 @@ from datetime import datetime
 
 from auxiliar import *
 from drive import *
+from work_queue import Dispatcher, Worker
+from concurrent_progress_bar import ConcurrentProgressBar as ProgressBar
 
 #===============================================================================
 # Constants
 
 # Configurable ----
 
+MAX_CONCURRENT_UPLOADS = 4
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024 # 100 MB
-LAST_EXECUTION_LOG = 'run%s.log'
+LAST_EXECUTION_LOG = 'log/run%s.log'
 DONT_UPLOAD_EXTENSIONS = [
     '.db', '.py', '.bat'
 ]
@@ -38,10 +42,14 @@ GIGA = 1 * 1024 * 1024 * 1024
 # Debug -----------
 
 DEBUG_SKIP_CONFIRMATION = 0
-DEBUG_DRY_RUN = True
+DEBUG_DRY_RUN = False
 
 # Log -------------
 
+try:
+    os.makedirs(os.path.split(LAST_EXECUTION_LOG)[0])
+except:
+    pass
 f = open(LAST_EXECUTION_LOG % datetime.now().strftime("%Y%m%d%H%M%S%f"), 'wt')
 def print2(*args, **kwargs):
     __builtins__.print(*args, **kwargs)
@@ -59,48 +67,6 @@ Find the most probable client secret file around.
 def get_client_secret_file():
     candidates = [f for f in os.listdir('.') if f.startswith('client_secret')]
     return safe_get_field(candidates, 0) # ooo, advanced, machine learning, AI logic
-
-"""
-Helper for formatting the progress bar.
-"""
-def _format_progress_bar(width, current, total):
-    if total == 0:
-        return '-' * width
-    current = min(max(0, current), total)
-    num_progress_full = int(current * width / total)
-    num_progress_empty = width - num_progress_full
-    return ('#' * num_progress_full) + ('-' * num_progress_empty)
-
-"""
-Helper for formatting the progress bar.
-"""
-def _format_progress_percent(current, total):
-    if total == 0:
-        return '  0%'
-    current = min(max(0, current), total)
-    return ('%d%%' % round(current * 100 / total)).rjust(4)
-
-"""
-Show/update the progress bar.
-"""
-def update_progress_bar(files_current, files_total, upload_current=0, upload_total=0):
-    BAR_WIDTH = 30
-    files_bar = _format_progress_bar(BAR_WIDTH, files_current, files_total)
-    upload_bar = _format_progress_bar(BAR_WIDTH, upload_current, upload_total)
-    files_percent = _format_progress_percent(files_current, files_total)
-    upload_percent = _format_progress_percent(upload_current, upload_total)
-    
-    sys.stdout.write('%s |%s|%s| %s (%d/%d)\r' % (
-        upload_percent, upload_bar, files_bar,
-        files_percent, files_current, files_total))
-    sys.stdout.flush()
-
-"""
-Clear the progress bar before printing another message.
-"""
-def clear_progress_bar():
-    sys.stdout.write((' ' * 85) + '\r') # clear the progress bar
-    sys.stdout.flush()
 
 # Global
 g_tk_root = None
@@ -134,6 +100,8 @@ def ask_for_dest(initial):
 
 # Global
 g_stop_loop = False
+g_progress_bar = None
+g_thread_data = []
 
 """
 Handle Ctrl+C during the main loop.
@@ -146,14 +114,14 @@ def signal_handler(sig, frame):
 """
 Pretend to upload a file when dry run is configured.
 """
-def _debug_pretend_upload(file, callback):
-    size = os.path.getsize(file)
-    time.sleep(0.5)
-    callback(size/3, size)
-    time.sleep(0.5)
-    callback(size*2/3, size)
-    time.sleep(0.5)
-    callback(size, size)
+def debug_pretend_upload(file, callback):
+    total = os.path.getsize(file)
+    rate = 512 * 1024
+    uploaded = 0
+    while uploaded < total:
+        time.sleep(0.5)
+        uploaded += rate
+        callback(min(uploaded, total), total)
 
 """
 Main. See script's doc bellow for more information.
@@ -207,98 +175,160 @@ def main(source_root, dest_root, options):
     global g_stop_loop
     signal.signal(signal.SIGINT, signal_handler)
     
-    size_uploaded_files = 0
-    num_uploaded_files = 0
-    num_upload_errors = 0
-    num_existing_files = 0
-    num_skipped_files = 0
-    num_processed_files = 0
-    error_streak = 0
+    global g_progress_bar
+    g_progress_bar = ProgressBar(MAX_CONCURRENT_UPLOADS)
+    g_progress_bar.start()
+
+    shared_data = {
+        'lock': threading.Lock(),
+        'size_uploaded_files': 0,
+        'num_uploaded_files': 0,
+        'num_upload_errors': 0,
+        'num_existing_files': 0,
+        'num_skipped_files': 0,
+        'num_processed_files': 0,
+        'error_streak': 0,
+    }
     ERROR_STREAK_WAIT = 5
     ERROR_STREAK_ABORT = 10
-    start_time = time.time()
+    
+    # Work queue
+    def upload_task(data):
+        shared_data = data['shared_data']
+        file_data = data['file_data']
+        tid = Worker.current_thread_id()
+        my_drive = g_thread_data[tid]['drive']
+        
+        g_progress_bar.clear()
+        print('[%d] uploading file "%s/%s" (%s)' % (tid, file_data['dest_path'],
+            file_data['file'], format_pretty_size(file_data['file_size'])))
+        g_progress_bar.redraw()
+        
+        try:
+            callback = lambda progress, total: (g_progress_bar.update_part(tid, progress, total),
+                g_progress_bar.update_total(shared_data['num_processed_files'], num_source_files))
+                
+            if not DEBUG_DRY_RUN:
+                my_drive.upload_file(file_data['current_dest_id'], file_data['full_file_path'],
+                    progress_callback=callback, check_exists=False)
+            else:
+                debug_pretend_upload(file_data['full_file_path'], callback)
+                
+            with shared_data['lock']:
+                shared_data['size_uploaded_files'] += file_data['file_size']
+                shared_data['num_uploaded_files'] += 1
+                shared_data['num_processed_files'] += 1
+                shared_data['error_streak'] = 0
+        except Exception as e:
+            print('**File upload error: ' + str(e))
+            with shared_data['lock']:
+                shared_data['num_upload_errors'] += 1
+                shared_data['num_processed_files'] += 1
+                shared_data['error_streak'] += 1
+
+    # Prepare and start worker threads
+    for i in range(MAX_CONCURRENT_UPLOADS):
+        g_thread_data.append({ 'drive': drive.duplicate_service() })
+    queue = Dispatcher(MAX_CONCURRENT_UPLOADS, 2*MAX_CONCURRENT_UPLOADS, upload_task)
+    queue.start()
     
     # Walk each subdir in source (including the root)
+    start_time = time.time()
     for path, dirs, files in os.walk(source_root):
         # Calculate the destination path for this directory in the Drive and
         # obtain the list of files that already exist there (as a hash map)
         relative_path = make_relative_path(path, source_root)
         dest_path = clean_path(dest_root + '/' + relative_path)
         current_dest_id = drive.ensure_path(dest_path)
-        clear_progress_bar()
         print('Listing files for "%s"...' % dest_path)
         existing_files_map = result_list_to_map(drive.list_files(current_dest_id))
         
         # Walk each file in this subdir
         for file in files:
-            num_processed_files += 1
             if not file in existing_files_map:
                 # File does not exist in destination, upload it
                 short_file_name = relative_path + '/' + file
                 full_file_path = clean_path(path + '/' + file)
                 file_size = os.path.getsize(full_file_path)
-                clear_progress_bar()
                 if os.path.splitext(full_file_path)[-1] in DONT_UPLOAD_EXTENSIONS:
                     print('File "%s" not uploaded due to prevented extension' % short_file_name)
-                    num_skipped_files += 1
+                    with shared_data['lock']:
+                        shared_data['num_skipped_files'] += 1
+                        shared_data['num_processed_files'] += 1
                 elif not options['no_max_size'] and file_size > MAX_UPLOAD_SIZE:
                     print('File "%s" not uploaded due to size (%s)' % (short_file_name,
                         format_pretty_size(file_size)))
-                    num_skipped_files += 1
+                    with shared_data['lock']:
+                        shared_data['num_skipped_files'] += 1
+                        shared_data['num_processed_files'] += 1
                 else:
-                    print('Uploading file "%s/%s" (%s)' % (dest_path, file, format_pretty_size(file_size)))
-                    #update_progress_bar(num_processed_files, num_source_files)
-                    try:
-                        callback = lambda progress, total: update_progress_bar(
-                            num_processed_files, num_source_files, progress, total)
-                            
-                        if not DEBUG_DRY_RUN:
-                            drive.upload_file(current_dest_id, full_file_path,
-                                progress_callback=callback, check_exists=False)
-                        else:
-                            _debug_pretend_upload(full_file_path, callback)
-                            
-                        size_uploaded_files += file_size
-                        num_uploaded_files += 1
-                        error_streak = 0
-                    except Exception as e:
-                        print('**File upload error: ' + str(e))
-                        num_upload_errors += 1
-                        error_streak += 1
+                    data = {
+                        'shared_data': shared_data,
+                        'file_data': {
+                            'dest_path': dest_path,
+                            'current_dest_id': current_dest_id,
+                            'file': file,
+                            'full_file_path': full_file_path,
+                            'file_size': file_size,
+                        },
+                    }
+                    if MAX_CONCURRENT_UPLOADS > 1:
+                        while True:
+                            if queue.add_data(data):
+                                break
+                            else:
+                                time.sleep(0.1)
+                    else:
+                        upload_task(data)
                         
                     # Error handling
-                    if error_streak >= ERROR_STREAK_ABORT:
+                    if shared_data['error_streak'] >= ERROR_STREAK_ABORT:
                         g_stop_loop = True
-                    elif error_streak >= ERROR_STREAK_WAIT:
+                    elif shared_data['error_streak'] >= ERROR_STREAK_WAIT:
                         print('Too many sequential errors, waiting 30 seconds before continuing...')
                         time.sleep(30)
             else:
                 # File already exists in destination
-                num_existing_files += 1
+                with shared_data['lock']:
+                    shared_data['num_existing_files'] += 1
+                    shared_data['num_processed_files'] += 1
             
             if g_stop_loop:
+                queue.clear_data()
                 break # for file
         if g_stop_loop:
+            queue.clear_data()
             break # for path
+
+    # Wait for the queue to become empty and the workers idle
+    while True:
+        if queue.has_data() or queue.is_busy():
+            time.sleep(1)
+        else:
+            break
+    queue.stop()
 
     end_time = time.time()
     elapsed_time = end_time - start_time
+    
+    g_progress_bar.stop()
+    g_progress_bar.clear()
     
     # Show final statistics
     print('\n--Operation completed--')
     print('Time taken: ' + format_pretty_time(elapsed_time))
     print('Average upload speed:  %s/s | %d file(s)/min' % (
-        format_pretty_size(size_uploaded_files / elapsed_time),
-        round(num_uploaded_files * 60 / elapsed_time)))
-    if size_uploaded_files != 0:
-        print('Time to 1 GB: %s' % format_pretty_time(GIGA * elapsed_time / size_uploaded_files))
+        format_pretty_size(shared_data['size_uploaded_files'] / elapsed_time),
+        round(shared_data['num_uploaded_files'] * 60 / elapsed_time)))
+    if shared_data['size_uploaded_files'] != 0:
+        print('Time to 1 GB: %s' % format_pretty_time(GIGA * elapsed_time / shared_data['size_uploaded_files']))
     print('%d file(s) uploaded (%s)' % (
-        num_uploaded_files,
-        format_pretty_size(size_uploaded_files)))
-    print('%d file(s) failed to upload' % num_upload_errors)
-    if num_skipped_files > 0:
-        print('%d file(s) skipped' % num_skipped_files)
-    print('%d file(s) already existed' % num_existing_files)
+        shared_data['num_uploaded_files'],
+        format_pretty_size(shared_data['size_uploaded_files'])))
+    print('%d file(s) failed to upload' % shared_data['num_upload_errors'])
+    if shared_data['num_skipped_files'] > 0:
+        print('%d file(s) skipped' % shared_data['num_skipped_files'])
+    print('%d file(s) already existed' % shared_data['num_existing_files'])
     print('')
 
 USAGE = """
