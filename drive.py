@@ -27,6 +27,7 @@ class Drive:
     """
     def __init__(self):
         self.service = None
+        self.credentials = None
         
     """
     Authenticate me via OAuth.
@@ -92,9 +93,18 @@ class Drive:
     Connect to the service.
     """
     def connect(self, secret_file):
-        self.service = build('drive', 'v3',
-            credentials=self._oauth_me(secret_file))
+        self.credentials = self._oauth_me(secret_file)
+        self.service = build('drive', 'v3', credentials=self.credentials)
         return self.service is not None
+    
+    """
+    Duplicate this service instance with a new http backend (make thread-safe).
+    """
+    def duplicate_service(self):
+        new_service = Drive()
+        new_service.credentials = self.credentials
+        new_service.service = build('drive', 'v3', credentials=new_service.credentials)
+        return new_service
 
     """
     List all files of a directory.
@@ -202,7 +212,6 @@ class Drive:
             'name': file_name, 'parents': [ root_id ],
             'mimeType': mimetype},
             media_body=media)
-        media.stream()
         response = None
         if progress_callback:
             progress_callback(0, 0) # shows empty at first
