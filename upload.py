@@ -38,6 +38,7 @@ GIGA = 1 * 1024 * 1024 * 1024
 # Debug -----------
 
 DEBUG_SKIP_CONFIRMATION = 0
+DEBUG_DRY_RUN = True
 
 # Log -------------
 
@@ -143,6 +144,18 @@ def signal_handler(sig, frame):
     print('Ctrl+C')
 
 """
+Pretend to upload a file when dry run is configured.
+"""
+def _debug_pretend_upload(file, callback):
+    size = os.path.getsize(file)
+    time.sleep(0.5)
+    callback(size/3, size)
+    time.sleep(0.5)
+    callback(size*2/3, size)
+    time.sleep(0.5)
+    callback(size, size)
+
+"""
 Main. See script's doc bellow for more information.
 """
 def main(source_root, dest_root, options):
@@ -181,6 +194,8 @@ def main(source_root, dest_root, options):
     print('Copy up to %d files from\n  >>>"%s"<<<' % (num_source_files, source_root))
     print('to your Google Drive path\n  >>>"%s"<<<.' % dest_root)
     print('Existing files will be skipped.')
+    if DEBUG_DRY_RUN:
+        print('## THIS IS A DRY RUN, NO UPLOADS WILL BE MADE ##')
     print('Operation can be interrupted at any time by >>>Ctrl+C<<<.')
     if not DEBUG_SKIP_CONFIRMATION and not options['skip_confirmation'] and input('Are you sure [y/N]? ').upper() != 'Y':
         print('Operation aborted!')
@@ -237,8 +252,11 @@ def main(source_root, dest_root, options):
                         callback = lambda progress, total: update_progress_bar(
                             num_processed_files, num_source_files, progress, total)
                             
-                        drive.upload_file(current_dest_id, full_file_path,
-                            progress_callback=callback, check_exists=False)
+                        if not DEBUG_DRY_RUN:
+                            drive.upload_file(current_dest_id, full_file_path,
+                                progress_callback=callback, check_exists=False)
+                        else:
+                            _debug_pretend_upload(full_file_path, callback)
                             
                         size_uploaded_files += file_size
                         num_uploaded_files += 1
