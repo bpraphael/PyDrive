@@ -7,8 +7,7 @@ Progress bar for multiple concurrent progresses.
 """
 class ConcurrentProgressBar:
     BARS_WIDTH = 70
-    BAR_START = '%s%% ['
-    BAR_START_EMPTY = '---% ['
+    BAR_START = '%s ['
     BAR_END = '] '
     BAR_MIN_POINTS = 5
     

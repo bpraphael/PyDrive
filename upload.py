@@ -4,8 +4,11 @@ Run with --help for more info.
 
 Raphael Pithan
 2021
+
+TODO: create initial folder on drive if it doesn't exist
 """
 
+import re
 import os
 import os.path
 import sys
@@ -29,14 +32,12 @@ from concurrent_progress_bar import ConcurrentProgressBar as ProgressBar
 # Configurable ----
 
 MAX_CONCURRENT_UPLOADS = 4
-MAX_UPLOAD_SIZE = 100 * 1024 * 1024 # 100 MB
 LAST_EXECUTION_LOG = 'log/run%s.log'
 DONT_UPLOAD_EXTENSIONS = [
     '.db', '.py', '.bat'
 ]
 
 # Not configurable
-
 GIGA = 1 * 1024 * 1024 * 1024
 
 # Debug -----------
@@ -94,7 +95,35 @@ def ask_for_dest(initial):
     return simpledialog.askstring("Destination",
         'Destination directory on Google Drive (must exist):',
         initialvalue=initial)
-        
+
+"""
+Check if directory should be excluded from uploads (looks at the parents too)
+"""
+def check_dir_excluded(path, options, root=None):
+    if options['exclude_dir'] and len(options['exclude_dir']) > 0:
+        excl = options['exclude_dir'].lower()
+        if root:
+            path = make_relative_path(path, root)
+        dirs = path.split('/')
+        for dir in dirs:            
+            if dir.lower().find(excl) != -1:
+                return True
+    return False
+
+"""
+Extracts bytes value from human size (100M, 100MB, 1G, etc)
+"""
+def process_human_size(size):
+    if size and len(size) > 0:
+        size = size.upper()
+        match = re.match('^(\d+)([KMG])?B?$', size)
+        if match:
+            base = int(match.group(1))
+            unit = match.group(2)
+            mult = unit and pow(1024, ['K', 'M', 'G'].index(unit) + 1) or 1
+            return base * mult
+    return None
+
 #===============================================================================
 # Main
 
@@ -135,7 +164,8 @@ def main(source_root, dest_root, options):
     print('Counting source files... ', end='')
     num_source_files = 0
     for path, dirs, files in os.walk(source_root):
-        num_source_files += len(files)
+        if not check_dir_excluded(path, options, root=source_root):
+            num_source_files += len(files)
     print('%d files found' % num_source_files)
     if num_source_files == 0:
         sys.exit(0)
@@ -210,7 +240,7 @@ def main(source_root, dest_root, options):
                 
             if not DEBUG_DRY_RUN:
                 my_drive.upload_file(file_data['current_dest_id'], file_data['full_file_path'],
-                    progress_callback=callback, check_exists=False)
+                    progress_callback=callback, check_exists=False, replace=options['replace'])
             else:
                 debug_pretend_upload(file_data['full_file_path'], callback)
                 
@@ -235,6 +265,10 @@ def main(source_root, dest_root, options):
     # Walk each subdir in source (including the root)
     start_time = time.time()
     for path, dirs, files in os.walk(source_root):
+        if check_dir_excluded(path, options, root=source_root):
+            print('Directory "%s" excluded from upload' % path)
+            continue
+                
         # Calculate the destination path for this directory in the Drive and
         # obtain the list of files that already exist there (as a hash map)
         relative_path = make_relative_path(path, source_root)
@@ -245,7 +279,7 @@ def main(source_root, dest_root, options):
         
         # Walk each file in this subdir
         for file in files:
-            if not file in existing_files_map:
+            if not file in existing_files_map or options['replace']:
                 # File does not exist in destination, upload it
                 short_file_name = relative_path + '/' + file
                 full_file_path = clean_path(path + '/' + file)
@@ -255,7 +289,7 @@ def main(source_root, dest_root, options):
                     with shared_data['lock']:
                         shared_data['num_skipped_files'] += 1
                         shared_data['num_processed_files'] += 1
-                elif not options['no_max_size'] and file_size > MAX_UPLOAD_SIZE:
+                elif options['max_size'] and file_size > options['max_size']:
                     print('File "%s" not uploaded due to size (%s)' % (short_file_name,
                         format_pretty_size(file_size)))
                     with shared_data['lock']:
@@ -347,8 +381,10 @@ if __name__ == '__main__':
     parser.add_argument('--ask-dest', action='store_true', default=False)
     parser.add_argument('--source')
     parser.add_argument('--dest')
-    parser.add_argument('--no-max-size', action='store_true', default=False)
+    parser.add_argument('--exclude-dir-part')
+    parser.add_argument('--max-size')
     parser.add_argument('--skip-confirmation', action='store_true', default=False)
+    parser.add_argument('--replace', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.ask_source or not args.source:
@@ -365,4 +401,4 @@ if __name__ == '__main__':
         print('No destination specified')
         sys.exit(1)
         
-    main(args.source, args.dest, { 'no_max_size': args.no_max_size, 'skip_confirmation': args.skip_confirmation })
+    main(args.source, args.dest, { 'max_size': process_human_size(args.max_size), 'skip_confirmation': args.skip_confirmation, 'exclude_dir': args.exclude_dir_part, 'replace' : args.replace })

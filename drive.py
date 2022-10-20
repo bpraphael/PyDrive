@@ -3,6 +3,7 @@ Raphael Pithan
 2021
 """
 
+import sys
 import os.path
 import mimetypes
 from googleapiclient.discovery import build
@@ -17,6 +18,12 @@ from auxiliar import *
 AUTH_SCOPES = [ 'https://www.googleapis.com/auth/drive' ]
 FOLDER_TYPE_FILTER = "mimeType='application/vnd.google-apps.folder'"
 NOT_FOLDER_TYPE_FILTER = "mimeType!='application/vnd.google-apps.folder'"
+
+"""
+Print error message as in print.
+"""
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 """
 Class for accessing Google Drive files.
@@ -65,6 +72,7 @@ class Drive:
     Make a 'name' filter.
     """
     def _name_filter(self, name):
+        name = name.replace('\\', '\\\\').replace("'", "\\'")
         return "name='%s'" % name
 
     """
@@ -117,6 +125,19 @@ class Drive:
             fields='files(id, name)',
             pageSize=100, orderBy='name')
         return results
+    
+    """
+    Get the ids of the (possibly) multiple files with the given name (or None if
+    it doesn't exist).
+    """
+    def get_files(self, root_id, name):
+        debug_trace(root_id, name)
+        result = self.service.files().list(
+            q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id),
+                self._name_filter(name)),
+            fields="files(id)").execute()
+        res = safe_get_field(result, 'files')
+        return res if len(res) > 0 else None
 
     """
     List all subdirectories of a directory.
@@ -194,19 +215,24 @@ class Drive:
     duplication (yes, it duplicates), but also adds overhead.
     Returns the file id.
     """
-    def upload_file(self, root_id, full_file_path, progress_callback=None, check_exists=True):
-        debug_trace(root_id, full_file_path, check_exists)
+    def upload_file(self, root_id, full_file_path, progress_callback=None, check_exists=True, replace=False):
+        debug_trace(root_id, full_file_path, check_exists, replace)
         file_name = extract_file_name(full_file_path)
         mimetype = mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
         
-        if check_exists:
-            existing_id = self.get_subdir(root_id, file_name)
-            if existing_id:
-                return existing_id
-
+        if check_exists or replace:
+            existing_files = self.get_files(root_id, file_name)
+            if existing_files:
+                if not replace:
+                    return safe_get_field(existing_files, 0, 'id')
+                else:
+                    for file in existing_files:
+                        eprint('INFO: deleting a file, ' + str(file['id']) + ' ' + file_name)
+                        self.service.files().delete(fileId=file['id']).execute()
+        
         media = MediaFileUpload(full_file_path,
             mimetype=mimetype,
-            chunksize=2*1024*1024,
+            chunksize=1024*1024,
             resumable=True)
         request = self.service.files().create(fields='id', body={
             'name': file_name, 'parents': [ root_id ],
