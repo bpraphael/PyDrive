@@ -6,8 +6,10 @@ Raphael Pithan
 import sys
 import os.path
 import mimetypes
+import io
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaIoBaseDownload
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
@@ -16,6 +18,7 @@ from google.oauth2.credentials import Credentials
 from auxiliar import *
 
 AUTH_SCOPES = [ 'https://www.googleapis.com/auth/drive' ]
+AUTH_SCOPES_READ_ONLY = [ 'https://www.googleapis.com/auth/drive.readonly' ]
 FOLDER_TYPE_FILTER = "mimeType='application/vnd.google-apps.folder'"
 NOT_FOLDER_TYPE_FILTER = "mimeType!='application/vnd.google-apps.folder'"
 
@@ -32,10 +35,11 @@ class Drive:
     """
     Constructor.
     """
-    def __init__(self):
+    def __init__(self, read_only=False):
         self.service = None
         self.credentials = None
-        
+        self.read_only = read_only
+    
     """
     Authenticate me via OAuth.
     """
@@ -43,9 +47,10 @@ class Drive:
         debug_trace(secret_file)
         AUTH_TOKEN_FILE = 'token.json'
         creds = None
+        requested_auth_scopes = AUTH_SCOPES if not self.read_only else AUTH_SCOPES_READ_ONLY
         if os.path.exists(AUTH_TOKEN_FILE):
             creds = Credentials.from_authorized_user_file(AUTH_TOKEN_FILE,
-                AUTH_SCOPES)
+                requested_auth_scopes)
         if not creds or not creds.valid:
             refreshed = False
             if creds and creds.expired and creds.refresh_token:
@@ -56,7 +61,7 @@ class Drive:
                     os.remove(AUTH_TOKEN_FILE)
             if not refreshed:
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    secret_file, AUTH_SCOPES)
+                    secret_file, requested_auth_scopes)
                 creds = flow.run_local_server(port=0)
             with open(AUTH_TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
@@ -66,7 +71,7 @@ class Drive:
     Build a query for the 'q' parameter from multiple subfilters. Always use this.
     """
     def _build_query(self, *args):
-        return ' and '.join(["trashed=false", *args])
+        return ' and '.join([q for q in ["trashed=false", *args] if q is not None and len(q) > 0])
 
     """
     Make a 'name' filter.
@@ -118,10 +123,10 @@ class Drive:
     List all files of a directory.
     Returns list of dicts with 'id' and 'name'.
     """
-    def list_files(self, root_id):
+    def list_files(self, root_id, query=None):
         debug_trace(root_id)
         results = self._files_list_all_pages(
-            q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id)),
+            q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id), query),
             fields='files(id, name)',
             pageSize=100, orderBy='name')
         return results
@@ -209,6 +214,24 @@ class Drive:
     def ensure_path(self, path):
         debug_trace(path)
         return self.get_path(path, create=True)
+    
+    """
+    Download a file (by id).
+    Returns the file id.
+    """
+    def download_file(self, file_id, output_file=None, progress_callback=None):
+        debug_trace(file_id)
+        request = self.service.files().get_media(fileId=file_id)
+        file = io.BytesIO() if output_file == None else output_file
+        media = MediaIoBaseDownload(file, request, chunksize=1024*1024)
+        if progress_callback:
+            progress_callback(0, 0) # shows empty at first
+        done = False
+        while done is False:
+            status, done = media.next_chunk()
+            if status and progress_callback:
+                progress_callback(status.resumable_progress, status.total_size)
+        return file
         
     """
     Upload a file to a given directory (by id). Flag check_exists prevents file
