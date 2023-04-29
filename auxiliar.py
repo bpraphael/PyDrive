@@ -79,5 +79,5 @@ def format_pretty_time(seconds):
 def result_list_to_map(result_list):
     map = {}
     for result in result_list:
-        map[result['name']] = True
+        map[result['name']] = result['id'] if 'id' in result else True
     return map
