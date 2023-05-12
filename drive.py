@@ -76,9 +76,12 @@ class Drive:
     """
     Make a 'name' filter.
     """
-    def _name_filter(self, name):
+    def _name_filter(self, name, exact=True):
         name = name.replace('\\', '\\\\').replace("'", "\\'")
-        return "name='%s'" % name
+        if exact:
+            return "name='%s'" % name
+        else:
+            return "name contains '%s'" % name
 
     """
     Make a 'parent' filter.
@@ -145,6 +148,16 @@ class Drive:
         return res if len(res) > 0 else None
 
     """
+    Get the ids of the (possibly) multiple parents of the given id.
+    """
+    def get_parents(self, id):
+        debug_trace(id)
+        result = self.service.files().get(fileId=id,
+            fields="parents").execute()
+        res = safe_get_field(result, 'parents')
+        return res if res != None else []
+
+    """
     List all subdirectories of a directory.
     Returns list of dicts with 'id' and 'name'.
     """
@@ -153,6 +166,18 @@ class Drive:
         results = self._files_list_all_pages(
             q=self._build_query(FOLDER_TYPE_FILTER, self._parent_filter(root_id)),
             fields='files(id, name)',
+            pageSize=100, orderBy='name')
+        return results
+
+    """
+    List ALL directories (whole drive) based on a word in it's name.
+    Returns list of dicts with 'id', 'name' and 'parents'.
+    """
+    def list_dirs_query(self, name):
+        debug_trace(name)
+        results = self._files_list_all_pages(
+            q=self._build_query(FOLDER_TYPE_FILTER, self._name_filter(name, exact=False)),
+            fields='files(id, name, parents)',
             pageSize=100, orderBy='name')
         return results
 
@@ -231,6 +256,7 @@ class Drive:
             status, done = media.next_chunk()
             if status and progress_callback:
                 progress_callback(status.resumable_progress, status.total_size)
+        file.seek(0)
         return file
         
     """
