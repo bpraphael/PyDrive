@@ -3,11 +3,13 @@
 all:
 	@echo Please make either \'posix\' or \'windows\' target.
 
-posix:
-	@$(MAKE) venv PY='python3' VPY='venv/bin/python'
+posix: PY := python3
+posix: VPY := venv/bin/python
+posix: venv
 
-windows:
-	@$(MAKE) venv PY='python3' VPY='venv\Scripts\python.exe'
+windows: PY := python3
+windows: VPY := venv\Scripts\python.exe
+windows: venv
 
 clean:
 	rm -rf venv
