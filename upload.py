@@ -102,12 +102,16 @@ Check if directory should be excluded from uploads (looks at the parents too)
 def check_dir_excluded(path, options, root=None):
     if options['exclude_dir'] and len(options['exclude_dir']) > 0:
         excl = options['exclude_dir'].lower()
-        if root:
-            path = make_relative_path(path, root)
-        dirs = path.split('/')
-        for dir in dirs:            
-            if dir.lower().find(excl) != -1:
-                return True
+    else:
+        excl = None
+    if root:
+        path = make_relative_path(path, root)
+    dirs = path.split('/')
+    for dir in dirs:
+        if dir.endswith('noupload'):
+            return True
+        if excl and dir.lower().find(excl) != -1:
+            return True
     return False
 
 """
