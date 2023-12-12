@@ -35,21 +35,21 @@ class Drive:
     """
     Constructor.
     """
-    def __init__(self, read_only=False):
+    def __init__(self, read_only=False, token_file=None):
         self.service = None
         self.credentials = None
         self.read_only = read_only
+        self.token_file = token_file or 'token.json'
     
     """
     Authenticate me via OAuth.
     """
     def _oauth_me(self, secret_file):
         debug_trace(secret_file)
-        AUTH_TOKEN_FILE = 'token.json'
         creds = None
         requested_auth_scopes = AUTH_SCOPES if not self.read_only else AUTH_SCOPES_READ_ONLY
-        if os.path.exists(AUTH_TOKEN_FILE):
-            creds = Credentials.from_authorized_user_file(AUTH_TOKEN_FILE,
+        if os.path.exists(self.token_file):
+            creds = Credentials.from_authorized_user_file(self.token_file,
                 requested_auth_scopes)
         if not creds or not creds.valid:
             refreshed = False
@@ -58,12 +58,12 @@ class Drive:
                     creds.refresh(Request())
                     refreshed = True
                 except RefreshError:
-                    os.remove(AUTH_TOKEN_FILE)
+                    os.remove(self.token_file)
             if not refreshed:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     secret_file, requested_auth_scopes)
                 creds = flow.run_local_server(port=0)
-            with open(AUTH_TOKEN_FILE, 'w') as token:
+            with open(self.token_file, 'w') as token:
                 token.write(creds.to_json())
         return creds
 
@@ -133,6 +133,19 @@ class Drive:
             fields='files(id, name)',
             pageSize=100, orderBy='name')
         return results
+    
+    """
+    Count the files of a directory. This is a little bit more efficent than
+    counting the result of list_files, but not much.
+    Returns the number of files.
+    """
+    def count_files(self, root_id, query=None):
+        debug_trace(root_id)
+        results = self._files_list_all_pages(
+            q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id), query),
+            fields='files(id)',
+            pageSize=100)
+        return len(results)
     
     """
     Get the ids of the (possibly) multiple files with the given name (or None if
