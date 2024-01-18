@@ -126,26 +126,13 @@ class Drive:
     List all files of a directory.
     Returns list of dicts with 'id' and 'name'.
     """
-    def list_files(self, root_id, query=None):
+    def list_files(self, root_id, query=None, fields='id, name', order='name'):
         debug_trace(root_id)
         results = self._files_list_all_pages(
             q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id), query),
-            fields='files(id, name)',
-            pageSize=100, orderBy='name')
+            fields='files('+fields+')',
+            pageSize=100, orderBy=order)
         return results
-    
-    """
-    Count the files of a directory. This is a little bit more efficent than
-    counting the result of list_files, but not much.
-    Returns the number of files.
-    """
-    def count_files(self, root_id, query=None):
-        debug_trace(root_id)
-        results = self._files_list_all_pages(
-            q=self._build_query(NOT_FOLDER_TYPE_FILTER, self._parent_filter(root_id), query),
-            fields='files(id)',
-            pageSize=100)
-        return len(results)
     
     """
     Get the ids of the (possibly) multiple files with the given name (or None if
