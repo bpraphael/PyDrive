@@ -19,6 +19,7 @@ from auxiliar import *
 
 AUTH_SCOPES = [ 'https://www.googleapis.com/auth/drive' ]
 AUTH_SCOPES_READ_ONLY = [ 'https://www.googleapis.com/auth/drive.readonly' ]
+AUTH_SCOPE_ACTIVITY = 'https://www.googleapis.com/auth/drive.activity.readonly'
 FOLDER_TYPE_FILTER = "mimeType='application/vnd.google-apps.folder'"
 NOT_FOLDER_TYPE_FILTER = "mimeType!='application/vnd.google-apps.folder'"
 
@@ -35,11 +36,13 @@ class Drive:
     """
     Constructor.
     """
-    def __init__(self, read_only=False, token_file=None):
+    def __init__(self, read_only=False, token_file=None, include_activity=False):
         self.service = None
         self.credentials = None
         self.read_only = read_only
         self.token_file = token_file or 'token.json'
+        self.include_activity_api = include_activity
+        self.activity_service = None
     
     """
     Authenticate me via OAuth.
@@ -48,6 +51,9 @@ class Drive:
         debug_trace(secret_file)
         creds = None
         requested_auth_scopes = AUTH_SCOPES if not self.read_only else AUTH_SCOPES_READ_ONLY
+        if self.include_activity_api:
+            requested_auth_scopes = requested_auth_scopes.copy()
+            requested_auth_scopes.append(AUTH_SCOPE_ACTIVITY)
         if os.path.exists(self.token_file):
             creds = Credentials.from_authorized_user_file(self.token_file,
                 requested_auth_scopes)
@@ -112,6 +118,14 @@ class Drive:
         self.credentials = self._oauth_me(secret_file)
         self.service = build('drive', 'v3', credentials=self.credentials)
         return self.service is not None
+    
+    """
+    Connect to the activity service (v2 API).
+    """
+    def connect_activity(self):
+        if self.activity_service is None and self.include_activity_api:
+            self.activity_service = build('driveactivity', 'v2', credentials=self.credentials)
+        return self.activity_service is not None
     
     """
     Duplicate this service instance with a new http backend (make thread-safe).
@@ -295,3 +309,15 @@ class Drive:
             if status and progress_callback:
                 progress_callback(status.resumable_progress, status.total_size)
         return response['id']
+
+    """
+    Get the last modified time for a file or directory. Based on the activity
+    API, returns the correct time for folders which had modifications deep
+    within it's subtrees.
+    """
+    def get_mtime(self, id):
+        debug_trace(id)
+        self.connect_activity()
+        result = self.activity_service.activity().query(body={
+            'ancestorName': 'items/' + str(id), 'pageSize': 1}).execute()
+        return safe_get_field(result, 'activities', 0, 'timestamp')
