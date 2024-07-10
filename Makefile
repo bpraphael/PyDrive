@@ -1,10 +1,19 @@
-.PHONY: clean venv
+.PHONY: clean posix windows
 
-all: clean venv
+all:
+	@echo Please make either \'posix\' or \'windows\' target.
+
+posix: PY := python3
+posix: VPY := venv/bin/python
+posix: venv
+
+windows: PY := python3
+windows: VPY := venv\Scripts\python.exe
+windows: venv
 
 clean:
 	rm -rf venv
 
 venv:
-	py -m venv venv
-	venv\Scripts\python.exe -m pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
+	$(PY) -m venv venv
+	$(VPY) -m pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
